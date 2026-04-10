@@ -1,7 +1,7 @@
 # VoiceLive
 
 Personal-use macOS 14+ menu bar app. Highlight text in any app, press `⌥R`,
-and VoiceLive reads it aloud via ElevenLabs TTS. Pressing `⌥R` again cancels
+and VoiceLive reads it aloud via OpenAI TTS. Pressing `⌥R` again cancels
 any in-flight request or playback and starts a new one.
 
 ## Setup
@@ -10,7 +10,7 @@ any in-flight request or playback and starts a new one.
 2. Copy the config template and fill in your API key:
    ```
    cp VoiceLive/Config.example.swift VoiceLive/Config.swift
-   # Open VoiceLive/Config.swift and paste your ElevenLabs API key and voice ID
+   # Open VoiceLive/Config.swift and paste your OpenAI API key
    ```
    `Config.swift` is gitignored.
 3. Generate the Xcode project: `xcodegen generate`
@@ -24,6 +24,13 @@ any in-flight request or playback and starts a new one.
    then quit and relaunch.
 8. Optionally add to System Settings → General → Login Items
 
+**Note on re-signing:** Every time VoiceLive is rebuilt and re-signed with an
+ad-hoc identity (`codesign --force --deep --sign -`), macOS silently revokes
+the prior Accessibility grant because the code signature changes. If the app
+suddenly reports "No text selected" after a redeploy, open System Settings →
+Privacy & Security → Accessibility and toggle VoiceLive off then on. See
+`docs/NOTES.md` for the full story.
+
 ## Running tests
 
 ```
@@ -34,7 +41,9 @@ xcodebuild test \
 ```
 
 Test targets:
-- `ElevenLabsClientTests` — HTTP client behaviour via `MockURLProtocol`
+- `OpenAIClientTests` — HTTP client behaviour via `MockURLProtocol`
+- `SpeechSynthesizerTests` — chunked streaming + error mapping
+- `SelectionCapturerTests` — pasteboard changeCount probe + modifier release wait
 - `AppStateIntegrationTests` — full pipeline via protocol mocks in `Mocks.swift`
 - `StatusItemControllerTests` — menu bar state transitions
 
@@ -42,11 +51,13 @@ Test targets:
 `VoiceLive/Protocols.swift`, so tests inject fakes without touching real
 hotkeys, network, audio, or notifications.
 
-## Finding your voice ID
+## Config options
 
-```
-curl -s https://api.elevenlabs.io/v1/voices \
-  -H "xi-api-key: YOUR_API_KEY" | jq '.voices[] | {voice_id, name}'
-```
+`Config.swift` exposes:
 
-Paste the `voice_id` you want into `Config.swift`.
+- `openAIKey` — your OpenAI API key from https://platform.openai.com/api-keys
+- `openAIModel` — `tts-1` (fast, cheap, ~$15/1M chars) or `tts-1-hd` (higher quality, 2x cost)
+- `openAIVoice` — one of `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`
+- `maxChars` — clamp on selection length before synthesis (default 5000)
+- `settleDelayMs` — how long to wait after synthetic ⌘C for the target app to populate the clipboard (default 150)
+- `modifierReleaseTimeoutMs` — how long to wait for hotkey modifiers to release before posting the synthetic ⌘C (default 300)
