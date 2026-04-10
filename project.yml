@@ -1,0 +1,60 @@
+name: VoiceLive
+options:
+  bundleIdPrefix: com.nathan
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_APP_SANDBOX: NO
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+    ENABLE_HARDENED_RUNTIME: NO
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  VoiceLive:
+    type: application
+    platform: macOS
+    sources:
+      - path: VoiceLive
+    info:
+      path: VoiceLive/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleName: VoiceLive
+        CFBundleDisplayName: VoiceLive
+        CFBundleIdentifier: com.nathan.voicelive
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        CFBundleExecutable: VoiceLive
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nathan.voicelive
+        PRODUCT_NAME: VoiceLive
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: VoiceLive/Info.plist
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    dependencies:
+      - sdk: Carbon.framework
+      - sdk: AVFoundation.framework
+      - sdk: UserNotifications.framework
+      - sdk: AppKit.framework
+
+  VoiceLiveTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: VoiceLiveTests
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VoiceLive.app/Contents/MacOS/VoiceLive"
+    dependencies:
+      - target: VoiceLive
