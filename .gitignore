@@ -1,0 +1,18 @@
+# xcodegen regenerates this from project.yml
+VoiceLive.xcodeproj/
+
+# Real config with API key — never commit
+VoiceLive/Config.swift
+
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# macOS cruft
+.DS_Store
+
+# Swift Package Manager
+.build/
+Packages/
