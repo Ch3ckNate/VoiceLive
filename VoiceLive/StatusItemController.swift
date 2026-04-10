@@ -13,6 +13,8 @@ final class StatusItemController {
 
     var state: State = .idle
 
+    private var flashTask: Task<Void, Never>?
+
     var iconName: String {
         switch state {
         case .idle: return "speaker.wave.2"
@@ -33,12 +35,14 @@ final class StatusItemController {
 
     /// Flash the error state for 2 seconds, then revert to idle.
     /// If a new state change arrives during the flash window, the flash is
-    /// superseded (the newer state wins).
+    /// superseded (the newer state wins). Back-to-back flashes cancel the
+    /// previous revert so only one timer runs at a time.
     func flashError() {
+        flashTask?.cancel()
         state = .error
-        Task { [weak self] in
+        flashTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             if self.state == .error {
                 self.state = .idle
             }

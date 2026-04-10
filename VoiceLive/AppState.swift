@@ -193,6 +193,13 @@ final class AppState {
                     body: "ElevenLabs returned an empty response."
                 )
                 self.statusItem.flashError()
+            } catch ElevenLabsError.invalidURL {
+                self.log.error("ElevenLabs invalid URL (check voiceId)")
+                self.notifications.show(
+                    title: "VoiceLive",
+                    body: "Configuration error: invalid voice ID."
+                )
+                self.statusItem.flashError()
             } catch {
                 self.log.error("Playback failed: \(String(describing: error), privacy: .public)")
                 self.notifications.show(

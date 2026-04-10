@@ -182,6 +182,20 @@ final class AppStateIntegrationTests: XCTestCase {
         XCTAssertEqual(state.statusItem.state, .error)
     }
 
+    func test_handleHotkey_invalidURL_mapsToCorrectNotification() async {
+        selection.nextResult = .captured("hi")
+        synthesizer.stub = { _ in throw ElevenLabsError.invalidURL }
+
+        state.handleHotkey()
+        await state.inFlightTask?.value
+
+        XCTAssertEqual(
+            notifications.shown,
+            [.init(title: "VoiceLive", body: "Configuration error: invalid voice ID.")]
+        )
+        XCTAssertEqual(state.statusItem.state, .error)
+    }
+
     func test_handleHotkey_emptyResponse_mapsToCorrectNotification() async {
         selection.nextResult = .captured("hi")
         synthesizer.stub = { _ in throw ElevenLabsError.emptyResponse }

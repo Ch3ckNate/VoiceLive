@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Carbon.HIToolbox
+import os.log
 
 /// Captures the currently-selected text from any frontmost app by:
 ///   1. Saving the current pasteboard string
@@ -23,6 +24,7 @@ final class SelectionCapturer: SelectionCapturing {
     }
 
     private let settleDelayMicroseconds: UInt32
+    private let log = Logger(subsystem: Config.logSubsystem, category: "SelectionCapturer")
 
     init(settleDelayMilliseconds: UInt32 = Config.settleDelayMs) {
         self.settleDelayMicroseconds = settleDelayMilliseconds * 1000
@@ -53,15 +55,22 @@ final class SelectionCapturer: SelectionCapturing {
     }
 
     private func simulateCommandC() {
-        let source = CGEventSource(stateID: .hidSystemState)
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            log.error("CGEventSource(.hidSystemState) returned nil — synthetic ⌘C cannot be posted")
+            return
+        }
         let keyCodeC = CGKeyCode(kVK_ANSI_C)
 
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCodeC, keyDown: true)
-        keyDown?.flags = .maskCommand
-        keyDown?.post(tap: .cghidEventTap)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCodeC, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeC, keyDown: false) else {
+            log.error("CGEvent creation returned nil — synthetic ⌘C cannot be posted")
+            return
+        }
 
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeC, keyDown: false)
-        keyUp?.flags = .maskCommand
-        keyUp?.post(tap: .cghidEventTap)
+        keyDown.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+
+        keyUp.flags = .maskCommand
+        keyUp.post(tap: .cghidEventTap)
     }
 }

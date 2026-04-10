@@ -37,6 +37,19 @@ final class StatusItemControllerTests: XCTestCase {
         XCTAssertEqual(controller.state, .error)
     }
 
+    func test_flashError_backToBackCallsCancelPreviousRevert() async {
+        let controller = StatusItemController()
+        controller.flashError()
+        controller.flashError()
+        controller.flashError()
+
+        XCTAssertEqual(controller.state, .error)
+
+        // After the final 2-second window, only one revert should fire
+        try? await Task.sleep(nanoseconds: 2_100_000_000)
+        XCTAssertEqual(controller.state, .idle)
+    }
+
     func test_flashError_supersededByNewerStateChange() async {
         let controller = StatusItemController()
         controller.flashError()
