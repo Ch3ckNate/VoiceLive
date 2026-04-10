@@ -3,7 +3,15 @@ import AppKit
 
 @main
 struct VoiceLiveApp: App {
-    @State private var appState = AppState()
+    @State private var appState: AppState
+
+    init() {
+        let state = AppState()
+        _appState = State(wrappedValue: state)
+        Task { @MainActor in
+            await state.bootstrap()
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -22,9 +30,6 @@ struct VoiceLiveApp: App {
             }
             .padding(12)
             .frame(minWidth: 180)
-            .task {
-                await appState.bootstrap()
-            }
         } label: {
             Image(systemName: appState.statusItem.iconName)
         }
