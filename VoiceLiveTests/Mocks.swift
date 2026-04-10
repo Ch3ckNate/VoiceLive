@@ -34,28 +34,86 @@ final class MockSelectionCapturer: SelectionCapturing {
     }
 }
 
-final class MockSynthesizer: TextSynthesizing, @unchecked Sendable {
-    var stub: @Sendable (String) async throws -> Data = { _ in Data([0x01, 0x02, 0x03]) }
-    var receivedTexts: [String] = []
+final class MockSpeechSynthesizer: SpeechSynthesizing {
+    var isSpeaking: Bool = false
+    var onFinished: (() -> Void)?
+    var onError: ((String) -> Void)?
+
+    var spokenTexts: [String] = []
+    var speakCallCount = 0
+    var stopCallCount = 0
+
+    func speak(text: String) {
+        speakCallCount += 1
+        spokenTexts.append(text)
+        isSpeaking = true
+    }
+
+    func stop() {
+        stopCallCount += 1
+        isSpeaking = false
+    }
+
+    /// Test helper: simulate natural playback completion.
+    func simulateFinish() {
+        isSpeaking = false
+        onFinished?()
+    }
+
+    /// Test helper: simulate a synthesis/playback failure. Fires onError
+    /// with the given message, then onFinished — mirrors production
+    /// SpeechSynthesizer's error path.
+    func simulateError(_ message: String) {
+        isSpeaking = false
+        onError?(message)
+        onFinished?()
+    }
+}
+
+final class MockTextToSpeechClient: TextToSpeechClient {
+    var nextResult: Result<Data, Error> = .success(Data([0xFF, 0xFB])) // minimal MP3-ish bytes
+    var synthesizeCallCount = 0
+    var lastText: String?
 
     func synthesize(text: String) async throws -> Data {
-        receivedTexts.append(text)
-        return try await stub(text)
+        synthesizeCallCount += 1
+        lastText = text
+        switch nextResult {
+        case .success(let data): return data
+        case .failure(let error): throw error
+        }
     }
 }
 
 final class MockAudioPlayer: AudioPlaying {
     var isPlaying: Bool = false
     var onFinished: (() -> Void)?
+
+    var playedDataHistory: [Data] = []
+    var enqueuedDataHistory: [Data] = []
     var playCallCount = 0
+    var enqueueCallCount = 0
     var stopCallCount = 0
-    var receivedData: [Data] = []
-    var playError: Error?
+    var nextPlayError: Error?
+    var nextEnqueueError: Error?
 
     func play(data: Data) throws {
         playCallCount += 1
-        receivedData.append(data)
-        if let playError { throw playError }
+        playedDataHistory.append(data)
+        if let error = nextPlayError {
+            nextPlayError = nil
+            throw error
+        }
+        isPlaying = true
+    }
+
+    func enqueue(data: Data) throws {
+        enqueueCallCount += 1
+        enqueuedDataHistory.append(data)
+        if let error = nextEnqueueError {
+            nextEnqueueError = nil
+            throw error
+        }
         isPlaying = true
     }
 

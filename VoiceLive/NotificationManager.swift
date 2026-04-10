@@ -1,9 +1,12 @@
 import Foundation
 import UserNotifications
 import AppKit
+import os.log
 
 final class NotificationManager: NotificationPresenting {
     static let shared = NotificationManager()
+
+    private let log = Logger(subsystem: Config.logSubsystem, category: "NotificationManager")
 
     private init() {}
 
@@ -11,9 +14,12 @@ final class NotificationManager: NotificationPresenting {
     /// granted, false if denied or an error occurred.
     func requestAuthorization() async -> Bool {
         do {
-            return try await UNUserNotificationCenter.current()
+            let granted = try await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound])
+            log.info("requestAuthorization returned granted=\(granted, privacy: .public)")
+            return granted
         } catch {
+            log.error("requestAuthorization threw: \(String(describing: error), privacy: .public)")
             return false
         }
     }

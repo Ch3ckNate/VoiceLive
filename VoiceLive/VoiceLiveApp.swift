@@ -21,6 +21,17 @@ struct VoiceLiveApp: App {
                 Divider()
                 Text("Status: \(appState.statusItem.statusLabel)")
                     .foregroundStyle(.secondary)
+                if let err = appState.lastError {
+                    Divider()
+                    Text("Last error")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(err)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Divider()
                 Button("Quit VoiceLive") {
                     appState.shutdown()
@@ -29,7 +40,7 @@ struct VoiceLiveApp: App {
                 .keyboardShortcut("q")
             }
             .padding(12)
-            .frame(minWidth: 180)
+            .frame(minWidth: 260, maxWidth: 320, alignment: .leading)
         } label: {
             Image(systemName: appState.statusItem.iconName)
         }

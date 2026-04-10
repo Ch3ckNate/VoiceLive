@@ -109,6 +109,84 @@ final class SelectionCapturerTests: XCTestCase {
         XCTAssertEqual(pasteboard.clearContentsCallCount, 0)
         XCTAssertEqual(pasteboard.stringForType, "untouched")
     }
+
+    // MARK: - Modifier release wait
+
+    func test_capture_waitsForModifiersToRelease_beforeSimulatingCopy() {
+        // Simulate Option still being held at the start, then released
+        // after two polls. The real impl polls at 10ms intervals, so the
+        // release timeout below is short enough to keep the test fast
+        // even if the modifier reader never changes.
+        pasteboard.stringForType = "previous"
+        var pollCount = 0
+        let flagsReader: () -> NSEvent.ModifierFlags = {
+            pollCount += 1
+            let flags: NSEvent.ModifierFlags = pollCount < 3 ? [.option] : []
+            return flags
+        }
+        var simulateCopyCalled = false
+        capturer = SelectionCapturer(
+            settleDelayMilliseconds: 0,
+            modifierReleaseTimeoutMilliseconds: 500,
+            pasteboard: pasteboard,
+            readModifierFlags: flagsReader,
+            simulateCopy: {
+                simulateCopyCalled = true
+            }
+        )
+
+        _ = capturer.capture()
+
+        XCTAssertTrue(simulateCopyCalled)
+        // Poll happened until Option cleared (3+ reads)
+        XCTAssertGreaterThanOrEqual(pollCount, 3)
+    }
+
+    func test_capture_modifiersNeverRelease_stillProceedsAfterTimeout() {
+        pasteboard.stringForType = "previous"
+        var simulateCopyCalled = false
+        let stuckReader: () -> NSEvent.ModifierFlags = {
+            let flags: NSEvent.ModifierFlags = [.option]
+            return flags
+        }
+        capturer = SelectionCapturer(
+            settleDelayMilliseconds: 0,
+            modifierReleaseTimeoutMilliseconds: 20, // short timeout keeps test fast
+            pasteboard: pasteboard,
+            readModifierFlags: stuckReader,
+            simulateCopy: { simulateCopyCalled = true }
+        )
+
+        _ = capturer.capture()
+
+        // Proceeds anyway after the timeout — better to try than to hang.
+        XCTAssertTrue(simulateCopyCalled)
+    }
+
+    func test_capture_noModifiersHeld_doesNotPollRepeatedly() {
+        pasteboard.stringForType = "previous"
+        var pollCount = 0
+        let freeReader: () -> NSEvent.ModifierFlags = {
+            pollCount += 1
+            let flags: NSEvent.ModifierFlags = []
+            return flags
+        }
+        capturer = SelectionCapturer(
+            settleDelayMilliseconds: 0,
+            modifierReleaseTimeoutMilliseconds: 500,
+            pasteboard: pasteboard,
+            readModifierFlags: freeReader,
+            simulateCopy: { [weak self] in
+                self?.pasteboard.stringForType = "got it"
+                self?.pasteboard.changeCount += 1
+            }
+        )
+
+        let result = capturer.capture()
+
+        XCTAssertEqual(result, .captured("got it"))
+        XCTAssertEqual(pollCount, 1) // single check, no loop
+    }
 }
 
 // MARK: - Fake pasteboard

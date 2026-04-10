@@ -5,8 +5,7 @@ import XCTest
 final class AppStateIntegrationTests: XCTestCase {
     var hotkey: MockHotkeyRegistering!
     var selection: MockSelectionCapturer!
-    var synthesizer: MockSynthesizer!
-    var audio: MockAudioPlayer!
+    var synthesizer: MockSpeechSynthesizer!
     var notifications: MockNotificationPresenter!
     var state: AppState!
 
@@ -14,14 +13,12 @@ final class AppStateIntegrationTests: XCTestCase {
         try await super.setUp()
         hotkey = MockHotkeyRegistering()
         selection = MockSelectionCapturer()
-        synthesizer = MockSynthesizer()
-        audio = MockAudioPlayer()
+        synthesizer = MockSpeechSynthesizer()
         notifications = MockNotificationPresenter()
         state = AppState(
             hotkeyManager: hotkey,
             selectionCapturer: selection,
             synthesizer: synthesizer,
-            audioPlayer: audio,
             notifications: notifications
         )
     }
@@ -31,83 +28,92 @@ final class AppStateIntegrationTests: XCTestCase {
         hotkey = nil
         selection = nil
         synthesizer = nil
-        audio = nil
         notifications = nil
         try await super.tearDown()
     }
 
     // MARK: - Happy path
 
-    func test_handleHotkey_happyPath_runsFullPipeline() async {
-        let expectedAudio = Data([0xFF, 0xFB, 0x90, 0x01])
+    func test_handleHotkey_happyPath_speaksCapturedText() {
         selection.nextResult = .captured("Read this aloud")
-        synthesizer.stub = { _ in expectedAudio }
 
         state.handleHotkey()
-        await state.inFlightTask?.value
 
         XCTAssertEqual(selection.captureCallCount, 1)
-        XCTAssertEqual(synthesizer.receivedTexts, ["Read this aloud"])
-        XCTAssertEqual(audio.receivedData, [expectedAudio])
-        XCTAssertEqual(audio.playCallCount, 1)
+        XCTAssertEqual(synthesizer.spokenTexts, ["Read this aloud"])
+        XCTAssertEqual(synthesizer.speakCallCount, 1)
         XCTAssertEqual(state.statusItem.state, .playing)
         XCTAssertTrue(notifications.shown.isEmpty)
+        XCTAssertNil(state.lastError)
     }
 
-    func test_handleHotkey_trimsWhitespaceBeforeSendingToSynthesizer() async {
+    func test_handleHotkey_clearsPreviousLastError() {
+        state.lastError = "stale"
+        selection.nextResult = .captured("fresh")
+
+        state.handleHotkey()
+
+        XCTAssertNil(state.lastError)
+        XCTAssertEqual(state.statusItem.state, .playing)
+    }
+
+    func test_handleHotkey_trimsWhitespaceBeforeSpeaking() {
         selection.nextResult = .captured("  hello  \n")
 
         state.handleHotkey()
-        await state.inFlightTask?.value
 
-        XCTAssertEqual(synthesizer.receivedTexts, ["hello"])
+        XCTAssertEqual(synthesizer.spokenTexts, ["hello"])
     }
 
-    func test_audioPlayerFinishCallback_returnsStateToIdle() async {
+    func test_synthesizerFinishCallback_returnsStateToIdle() {
         selection.nextResult = .captured("short")
         state.handleHotkey()
-        await state.inFlightTask?.value
         XCTAssertEqual(state.statusItem.state, .playing)
 
-        audio.simulateFinish()
+        synthesizer.simulateFinish()
 
         XCTAssertEqual(state.statusItem.state, .idle)
     }
 
     // MARK: - Selection failures
 
-    func test_handleHotkey_noSelection_notifiesAndFlashesError() async {
+    func test_handleHotkey_noSelection_notifiesAndFlashesError() {
         selection.nextResult = .noSelection
 
         state.handleHotkey()
 
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "No text selected.")])
+        XCTAssertEqual(notifications.shown.count, 1)
+        let body = notifications.shown.first?.body ?? ""
+        XCTAssertTrue(body.contains("No text selected"))
+        XCTAssertTrue(body.contains("⌘C"))
         XCTAssertEqual(state.statusItem.state, .error)
-        XCTAssertEqual(synthesizer.receivedTexts, [])
-        XCTAssertEqual(audio.playCallCount, 0)
+        XCTAssertEqual(state.lastError, body)
+        XCTAssertEqual(synthesizer.speakCallCount, 0)
     }
 
-    func test_handleHotkey_notText_notifiesAndFlashesError() async {
+    func test_handleHotkey_notText_notifiesAndFlashesError() {
         selection.nextResult = .notText
 
         state.handleHotkey()
 
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "Selection is not text.")])
+        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "Selection is not text (image or file).")])
         XCTAssertEqual(state.statusItem.state, .error)
-        XCTAssertEqual(synthesizer.receivedTexts, [])
+        XCTAssertEqual(state.lastError, "Selection is not text (image or file).")
+        XCTAssertEqual(synthesizer.speakCallCount, 0)
     }
 
-    func test_handleHotkey_whitespaceOnlyText_notifiesAsNoSelection() async {
+    func test_handleHotkey_whitespaceOnlyText_notifiesAsEmptyTrim() {
         selection.nextResult = .captured("   \n\t  ")
 
         state.handleHotkey()
 
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "No text selected.")])
+        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "Selection was empty after trimming whitespace.")])
         XCTAssertEqual(state.statusItem.state, .error)
-        XCTAssertEqual(synthesizer.receivedTexts, [])
+        XCTAssertEqual(state.lastError, "Selection was empty after trimming whitespace.")
+        XCTAssertEqual(synthesizer.speakCallCount, 0)
     }
 
-    func test_handleHotkey_tooLong_notifiesWithCharCount() async {
+    func test_handleHotkey_tooLong_notifiesWithCharCount() {
         let overLimit = String(repeating: "a", count: Config.maxChars + 1)
         selection.nextResult = .captured(overLimit)
 
@@ -118,195 +124,80 @@ final class AppStateIntegrationTests: XCTestCase {
         XCTAssertTrue(body.contains("\(Config.maxChars + 1) characters"))
         XCTAssertTrue(body.contains("max \(Config.maxChars)"))
         XCTAssertEqual(state.statusItem.state, .error)
-        XCTAssertEqual(synthesizer.receivedTexts, [])
+        XCTAssertEqual(state.lastError, body)
+        XCTAssertEqual(synthesizer.speakCallCount, 0)
     }
 
-    func test_handleHotkey_exactlyMaxChars_succeeds() async {
+    // MARK: - Synthesizer error surfacing
+
+    func test_synthesizerError_populatesLastErrorAndShowsNotification() {
+        selection.nextResult = .captured("hello")
+        state.handleHotkey()
+        XCTAssertEqual(state.statusItem.state, .playing)
+
+        synthesizer.simulateError("OpenAI rejected the API key (401). Check it's valid.")
+
+        XCTAssertEqual(state.lastError, "OpenAI rejected the API key (401). Check it's valid.")
+        XCTAssertEqual(state.statusItem.state, .error)
+        XCTAssertEqual(
+            notifications.shown.last,
+            .init(title: "VoiceLive", body: "OpenAI rejected the API key (401). Check it's valid.")
+        )
+    }
+
+    func test_synthesizerFinishAfterError_doesNotClobberLastErrorToIdle() {
+        // The real SpeechSynthesizer fires onError then onFinished. The
+        // finish callback must not reset the state back to .idle or we'd
+        // lose the error immediately.
+        selection.nextResult = .captured("hi")
+        state.handleHotkey()
+        synthesizer.simulateError("OpenAI server error (500). Try again shortly.")
+
+        XCTAssertEqual(state.statusItem.state, .error)
+        XCTAssertEqual(state.lastError, "OpenAI server error (500). Try again shortly.")
+    }
+
+    func test_handleHotkey_exactlyMaxChars_succeeds() {
         let atLimit = String(repeating: "a", count: Config.maxChars)
         selection.nextResult = .captured(atLimit)
 
         state.handleHotkey()
-        await state.inFlightTask?.value
 
-        XCTAssertEqual(synthesizer.receivedTexts.count, 1)
+        XCTAssertEqual(synthesizer.speakCallCount, 1)
         XCTAssertEqual(state.statusItem.state, .playing)
-    }
-
-    // MARK: - Synthesizer error catalog
-
-    func test_handleHotkey_invalidApiKey_mapsToCorrectNotification() async {
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw ElevenLabsError.invalidApiKey }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "ElevenLabs: invalid API key.")])
-        XCTAssertEqual(state.statusItem.state, .error)
-        XCTAssertEqual(audio.playCallCount, 0)
-    }
-
-    func test_handleHotkey_rateLimited_mapsToCorrectNotification() async {
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw ElevenLabsError.rateLimited }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(
-            notifications.shown,
-            [.init(title: "VoiceLive", body: "ElevenLabs: rate limited. Try again in a moment.")]
-        )
-        XCTAssertEqual(state.statusItem.state, .error)
-    }
-
-    func test_handleHotkey_httpError_includesStatusCodeInNotification() async {
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw ElevenLabsError.httpError(503) }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "ElevenLabs error: HTTP 503.")])
-        XCTAssertEqual(state.statusItem.state, .error)
-    }
-
-    func test_handleHotkey_networkError_includesMessageInNotification() async {
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw ElevenLabsError.networkError("offline") }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "Network error: offline.")])
-        XCTAssertEqual(state.statusItem.state, .error)
-    }
-
-    func test_handleHotkey_invalidURL_mapsToCorrectNotification() async {
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw ElevenLabsError.invalidURL }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(
-            notifications.shown,
-            [.init(title: "VoiceLive", body: "Configuration error: invalid voice ID.")]
-        )
-        XCTAssertEqual(state.statusItem.state, .error)
-    }
-
-    func test_handleHotkey_emptyResponse_mapsToCorrectNotification() async {
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw ElevenLabsError.emptyResponse }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(
-            notifications.shown,
-            [.init(title: "VoiceLive", body: "ElevenLabs returned an empty response.")]
-        )
-        XCTAssertEqual(state.statusItem.state, .error)
-    }
-
-    func test_handleHotkey_unknownError_mapsToGenericPlaybackFailedNotification() async {
-        struct WeirdError: Error {}
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in throw WeirdError() }
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "Audio playback failed.")])
-        XCTAssertEqual(state.statusItem.state, .error)
-    }
-
-    func test_handleHotkey_audioPlayerThrows_mapsToGenericPlaybackFailed() async {
-        struct PlaybackFailed: Error {}
-        selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in Data([0x01]) }
-        audio.playError = PlaybackFailed()
-
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(notifications.shown, [.init(title: "VoiceLive", body: "Audio playback failed.")])
-        XCTAssertEqual(state.statusItem.state, .error)
     }
 
     // MARK: - Cancel-then-start interrupt rule
 
-    func test_cancelThenStart_secondPressSupersedesFirst() async {
-        // First press: slow synth that will be cancelled
+    func test_handleHotkey_whileSpeaking_stopsPreviousSpeech() {
+        // First press starts speaking
         selection.nextResult = .captured("first")
-        synthesizer.stub = { _ in
-            try await Task.sleep(nanoseconds: 500_000_000)
-            return Data([0xAA])
-        }
-
         state.handleHotkey()
-        let firstTask = state.inFlightTask
-
-        // Second press: fast synth that should win
-        selection.nextResult = .captured("second")
-        synthesizer.stub = { _ in Data([0xBB]) }
-        state.handleHotkey()
-        let secondTask = state.inFlightTask
-
-        // Both tasks should complete (first via cancellation, second normally)
-        await firstTask?.value
-        await secondTask?.value
-
-        // Only the second press reached the audio player
-        XCTAssertEqual(audio.receivedData, [Data([0xBB])])
-        XCTAssertEqual(audio.playCallCount, 1)
         XCTAssertEqual(state.statusItem.state, .playing)
-        // No cancellation notification shown (cancel is silent)
+        XCTAssertEqual(synthesizer.speakCallCount, 1)
+        XCTAssertTrue(synthesizer.isSpeaking)
+
+        // Second press stops the first and starts the second
+        selection.nextResult = .captured("second")
+        state.handleHotkey()
+
+        XCTAssertEqual(synthesizer.stopCallCount, 1)
+        XCTAssertEqual(synthesizer.speakCallCount, 2)
+        XCTAssertEqual(synthesizer.spokenTexts, ["first", "second"])
+        XCTAssertEqual(state.statusItem.state, .playing)
         XCTAssertTrue(notifications.shown.isEmpty)
-    }
-
-    func test_handleHotkey_whileAudioIsPlaying_stopsPreviousAudio() async {
-        // First press completes normally
-        selection.nextResult = .captured("first")
-        synthesizer.stub = { _ in Data([0xAA]) }
-        state.handleHotkey()
-        await state.inFlightTask?.value
-        XCTAssertEqual(state.statusItem.state, .playing)
-        XCTAssertEqual(audio.playCallCount, 1)
-
-        // audio.isPlaying is true from the mock play()
-        XCTAssertTrue(audio.isPlaying)
-
-        // Second press should stop the audio before doing anything else
-        selection.nextResult = .captured("second")
-        synthesizer.stub = { _ in Data([0xBB]) }
-        state.handleHotkey()
-        await state.inFlightTask?.value
-
-        XCTAssertEqual(audio.stopCallCount, 1)
-        XCTAssertEqual(audio.playCallCount, 2)
-        XCTAssertEqual(audio.receivedData, [Data([0xAA]), Data([0xBB])])
     }
 
     // MARK: - Shutdown
 
-    func test_shutdown_cancelsInFlightTaskStopsAudioUnregistersHotkey() async {
+    func test_shutdown_stopsSynthesizerAndUnregistersHotkey() {
         selection.nextResult = .captured("hi")
-        synthesizer.stub = { _ in
-            try await Task.sleep(nanoseconds: 500_000_000)
-            return Data([0x01])
-        }
         state.handleHotkey()
-        let task = state.inFlightTask
-        XCTAssertNotNil(task)
 
         state.shutdown()
-        await task?.value
 
-        XCTAssertEqual(audio.stopCallCount, 1)
+        XCTAssertEqual(synthesizer.stopCallCount, 1)
         XCTAssertEqual(hotkey.unregisterCallCount, 1)
-        XCTAssertEqual(audio.playCallCount, 0) // synth was cancelled before play
     }
 
     // MARK: - Bootstrap
@@ -320,13 +211,14 @@ final class AppStateIntegrationTests: XCTestCase {
         XCTAssertEqual(hotkey.registerCallCount, 1)
     }
 
-    func test_bootstrap_notificationDenied_bailsWithErrorState() async {
+    func test_bootstrap_notificationDenied_stillRegistersHotkey() async {
         notifications.authorizationResult = false
 
         await state.bootstrap()
 
-        XCTAssertEqual(state.statusItem.state, .error)
-        XCTAssertEqual(hotkey.registerCallCount, 0)
+        // Notification permission is optional — bootstrap continues so the
+        // hotkey still registers. The menu bar icon conveys errors visually.
+        XCTAssertEqual(hotkey.registerCallCount, 1)
     }
 
     func test_bootstrap_hotkeyRegistrationFails_showsNotificationAndErrorState() async {
@@ -338,6 +230,7 @@ final class AppStateIntegrationTests: XCTestCase {
         XCTAssertEqual(state.statusItem.state, .error)
         XCTAssertEqual(notifications.shown.count, 1)
         XCTAssertTrue(notifications.shown.first?.body.contains("⌥R hotkey") == true)
+        XCTAssertEqual(state.lastError, notifications.shown.first?.body)
     }
 
     func test_bootstrap_handlerInstallFails_showsDistinctNotification() async {
@@ -349,18 +242,16 @@ final class AppStateIntegrationTests: XCTestCase {
         XCTAssertEqual(state.statusItem.state, .error)
         XCTAssertEqual(notifications.shown.count, 1)
         XCTAssertTrue(notifications.shown.first?.body.contains("keyboard event handler") == true)
+        XCTAssertEqual(state.lastError, notifications.shown.first?.body)
     }
 
     // MARK: - Hotkey callback wiring
 
-    func test_hotkeyCallback_firesHandleHotkey() async {
+    func test_hotkeyCallback_firesHandleHotkey() {
         selection.nextResult = .captured("wired")
-        synthesizer.stub = { _ in Data([0x42]) }
 
         hotkey.fireHotkey()
-        await state.inFlightTask?.value
 
-        XCTAssertEqual(synthesizer.receivedTexts, ["wired"])
-        XCTAssertEqual(audio.receivedData, [Data([0x42])])
+        XCTAssertEqual(synthesizer.spokenTexts, ["wired"])
     }
 }
