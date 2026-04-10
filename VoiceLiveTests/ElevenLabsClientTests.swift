@@ -149,4 +149,104 @@ final class ElevenLabsClientTests: XCTestCase {
             XCTFail("Expected ElevenLabsError, got \(error)")
         }
     }
+
+    func test_synthesize_urlContainsConfiguredVoiceId() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data([0x01]))
+        }
+
+        _ = try await client.synthesize(text: "Hi")
+
+        let sent = MockURLProtocol.receivedRequests.first
+        XCTAssertNotNil(sent)
+        XCTAssertEqual(
+            sent?.url?.absoluteString,
+            "https://api.elevenlabs.io/v1/text-to-speech/test-voice-id/stream"
+        )
+    }
+
+    func test_synthesize_setsXiApiKeyHeader() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data([0x01]))
+        }
+
+        _ = try await client.synthesize(text: "Hi")
+
+        let sent = MockURLProtocol.receivedRequests.first
+        XCTAssertEqual(sent?.value(forHTTPHeaderField: "xi-api-key"), "test-api-key")
+    }
+
+    func test_synthesize_setsContentTypeHeader() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data([0x01]))
+        }
+
+        _ = try await client.synthesize(text: "Hi")
+
+        let sent = MockURLProtocol.receivedRequests.first
+        XCTAssertEqual(sent?.value(forHTTPHeaderField: "Content-Type"), "application/json")
+    }
+
+    func test_synthesize_bodyContainsTextAndModelId() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data([0x01]))
+        }
+
+        _ = try await client.synthesize(text: "Read this aloud")
+
+        let sent = MockURLProtocol.receivedRequests.first
+        // Note: when a URLRequest is run through URLProtocol the httpBody is
+        // often stripped in favour of httpBodyStream. Read either.
+        let body: Data
+        if let direct = sent?.httpBody {
+            body = direct
+        } else if let stream = sent?.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var collected = Data()
+            let bufferSize = 1024
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+            defer { buffer.deallocate() }
+            while stream.hasBytesAvailable {
+                let read = stream.read(buffer, maxLength: bufferSize)
+                if read > 0 {
+                    collected.append(buffer, count: read)
+                } else {
+                    break
+                }
+            }
+            body = collected
+        } else {
+            XCTFail("No request body")
+            return
+        }
+
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(json?["text"] as? String, "Read this aloud")
+        XCTAssertEqual(json?["model_id"] as? String, "test-model-id")
+    }
 }
