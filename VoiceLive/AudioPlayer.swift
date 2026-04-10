@@ -31,6 +31,8 @@ final class AudioPlayer: NSObject {
     }
 }
 
+extension AudioPlayer: AudioPlaying {}
+
 extension AudioPlayer: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         DispatchQueue.main.async { [weak self] in

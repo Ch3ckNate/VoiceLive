@@ -9,21 +9,31 @@ import os.log
 final class AppState {
     let statusItem = StatusItemController()
 
-    private let hotkeyManager = HotkeyManager()
-    private let selectionCapturer = SelectionCapturer()
-    private let elevenLabsClient: ElevenLabsClient
-    private let audioPlayer = AudioPlayer()
-    private let notifications = NotificationManager.shared
+    private let hotkeyManager: any HotkeyRegistering
+    private let selectionCapturer: any SelectionCapturing
+    private let synthesizer: any TextSynthesizing
+    private let audioPlayer: any AudioPlaying
+    private let notifications: any NotificationPresenting
     private let log = Logger(subsystem: Config.logSubsystem, category: "AppState")
 
-    private var inFlightTask: Task<Void, Never>?
+    private(set) var inFlightTask: Task<Void, Never>?
 
-    init() {
-        self.elevenLabsClient = ElevenLabsClient(
+    init(
+        hotkeyManager: any HotkeyRegistering = HotkeyManager(),
+        selectionCapturer: any SelectionCapturing = SelectionCapturer(),
+        synthesizer: any TextSynthesizing = ElevenLabsClient(
             apiKey: Config.elevenLabsApiKey,
             voiceId: Config.voiceId,
             modelId: Config.modelId
-        )
+        ),
+        audioPlayer: any AudioPlaying = AudioPlayer(),
+        notifications: any NotificationPresenting = NotificationManager.shared
+    ) {
+        self.hotkeyManager = hotkeyManager
+        self.selectionCapturer = selectionCapturer
+        self.synthesizer = synthesizer
+        self.audioPlayer = audioPlayer
+        self.notifications = notifications
 
         self.audioPlayer.onFinished = { [weak self] in
             guard let self else { return }
@@ -141,7 +151,7 @@ final class AppState {
         inFlightTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let audio = try await self.elevenLabsClient.synthesize(text: trimmed)
+                let audio = try await self.synthesizer.synthesize(text: trimmed)
                 try Task.checkCancellation()
                 try self.audioPlayer.play(data: audio)
                 self.statusItem.state = .playing

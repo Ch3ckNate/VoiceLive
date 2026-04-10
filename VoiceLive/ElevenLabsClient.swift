@@ -19,7 +19,7 @@ struct ElevenLabsRequestBody: Encodable {
     }
 }
 
-final class ElevenLabsClient {
+final class ElevenLabsClient: TextSynthesizing {
     private let apiKey: String
     private let voiceId: String
     private let modelId: String

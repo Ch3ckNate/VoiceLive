@@ -15,7 +15,7 @@ enum HotkeyError: Error {
 /// event handler installed on the application event target. Without the
 /// handler, the OS accepts the registration but never invokes any
 /// callback.
-final class HotkeyManager {
+final class HotkeyManager: HotkeyRegistering {
     /// Called on the main thread every time the hotkey fires.
     var onHotkey: (() -> Void)?
 

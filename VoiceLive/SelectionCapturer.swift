@@ -15,8 +15,8 @@ import Carbon.HIToolbox
 /// from "user had something selected and also had something on the
 /// clipboard." Without it, an unchanged clipboard after the fake ⌘C looks
 /// identical to "captured the previous clipboard value".
-final class SelectionCapturer {
-    enum CaptureResult {
+final class SelectionCapturer: SelectionCapturing {
+    enum CaptureResult: Equatable {
         case captured(String)
         case noSelection   // changeCount unchanged; nothing was copied
         case notText       // changeCount changed, but pasteboard has no text

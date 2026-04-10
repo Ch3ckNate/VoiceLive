@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 import AppKit
 
-final class NotificationManager {
+final class NotificationManager: NotificationPresenting {
     static let shared = NotificationManager()
 
     private init() {}
