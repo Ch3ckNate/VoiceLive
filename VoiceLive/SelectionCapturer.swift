@@ -24,18 +24,25 @@ final class SelectionCapturer: SelectionCapturing {
     }
 
     private let settleDelayMicroseconds: UInt32
+    private let pasteboard: any PasteboardAccess
+    private let simulateCopy: () -> Void
     private let log = Logger(subsystem: Config.logSubsystem, category: "SelectionCapturer")
 
-    init(settleDelayMilliseconds: UInt32 = Config.settleDelayMs) {
+    init(
+        settleDelayMilliseconds: UInt32 = Config.settleDelayMs,
+        pasteboard: any PasteboardAccess = NSPasteboard.general,
+        simulateCopy: (() -> Void)? = nil
+    ) {
         self.settleDelayMicroseconds = settleDelayMilliseconds * 1000
+        self.pasteboard = pasteboard
+        self.simulateCopy = simulateCopy ?? SelectionCapturer.defaultSimulateCommandC
     }
 
     func capture() -> CaptureResult {
-        let pasteboard = NSPasteboard.general
         let saved = pasteboard.string(forType: .string)
         let initialChangeCount = pasteboard.changeCount
 
-        simulateCommandC()
+        simulateCopy()
         usleep(settleDelayMicroseconds)
 
         if pasteboard.changeCount == initialChangeCount {
@@ -54,7 +61,8 @@ final class SelectionCapturer: SelectionCapturing {
         return .captured(captured)
     }
 
-    private func simulateCommandC() {
+    private static func defaultSimulateCommandC() {
+        let log = Logger(subsystem: Config.logSubsystem, category: "SelectionCapturer")
         guard let source = CGEventSource(stateID: .hidSystemState) else {
             log.error("CGEventSource(.hidSystemState) returned nil — synthetic ⌘C cannot be posted")
             return
