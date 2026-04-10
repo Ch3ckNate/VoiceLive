@@ -33,6 +33,41 @@ final class ElevenLabsClient {
     }
 
     func synthesize(text: String) async throws -> Data {
-        fatalError("not implemented")
+        guard let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)/stream") else {
+            throw ElevenLabsError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
+
+        let body = ElevenLabsRequestBody(text: text, modelId: modelId)
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw ElevenLabsError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ElevenLabsError.networkError("No HTTP response")
+        }
+
+        switch httpResponse.statusCode {
+        case 200:
+            guard !data.isEmpty else { throw ElevenLabsError.emptyResponse }
+            return data
+        case 401:
+            throw ElevenLabsError.invalidApiKey
+        case 429:
+            throw ElevenLabsError.rateLimited
+        default:
+            throw ElevenLabsError.httpError(httpResponse.statusCode)
+        }
     }
 }
