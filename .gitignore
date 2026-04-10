@@ -1,9 +1,6 @@
 # xcodegen regenerates this from project.yml
 VoiceLive.xcodeproj/
 
-# Real config with API key — never commit
-VoiceLive/Config.swift
-
 # Xcode build artifacts
 build/
 DerivedData/
@@ -16,3 +13,6 @@ DerivedData/
 # Swift Package Manager
 .build/
 Packages/
+
+# Contains OpenAI API key — keep it local
+VoiceLive/Config.swift
